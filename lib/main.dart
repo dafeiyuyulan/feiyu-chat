@@ -1,14 +1,17 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'package:image_picker/image_picker.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 void main() => runApp(const FeiyuApp());
 
 const kDefaultServer = 'http://192.168.1.2:8790';
-const kAppVersion = '0.1.4';
+const kAppVersion = '0.1.5';
 
 const kBlue = Color(0xFF2B6EF2);
 const kBg = Color(0xFF0A1019);
@@ -33,7 +36,6 @@ class FeiyuApp extends StatelessWidget {
           primary: kBlue,
           surface: kPanel,
         ),
-        fontFamily: 'sans-serif',
       ),
       home: const ChatPage(),
     );
@@ -62,6 +64,9 @@ class _ChatPageState extends State<ChatPage> {
   final List<Msg> _msgs = [];
   String _server = kDefaultServer;
   bool _busy = false;
+  String? _avatarMe;
+  String? _avatarHer;
+  String? _bg;
 
   @override
   void initState() {
@@ -72,6 +77,9 @@ class _ChatPageState extends State<ChatPage> {
   Future<void> _boot() async {
     final sp = await SharedPreferences.getInstance();
     _server = sp.getString('server') ?? kDefaultServer;
+    _avatarMe = sp.getString('avatar_me');
+    _avatarHer = sp.getString('avatar_her');
+    _bg = sp.getString('bg');
     if (mounted) setState(() {});
     await _loadHistory();
   }
@@ -136,6 +144,53 @@ class _ChatPageState extends State<ChatPage> {
         behavior: SnackBarBehavior.floating,
       ),
     );
+  }
+
+  Future<String?> _pickImage(String key) async {
+    try {
+      final picked =
+          await ImagePicker().pickImage(source: ImageSource.gallery, maxWidth: 1600);
+      if (picked == null) return null;
+      final dir = await getApplicationDocumentsDirectory();
+      final path =
+          '${dir.path}/${key}_${DateTime.now().millisecondsSinceEpoch}.img';
+      await picked.saveTo(path);
+      return path;
+    } catch (e) {
+      _toast('选图没成功：$e');
+      return null;
+    }
+  }
+
+  Future<void> _setAvatar({required bool me}) async {
+    final key = me ? 'avatar_me' : 'avatar_her';
+    final path = await _pickImage(key);
+    if (path == null) return;
+    final sp = await SharedPreferences.getInstance();
+    await sp.setString(key, path);
+    setState(() {
+      if (me) {
+        _avatarMe = path;
+      } else {
+        _avatarHer = path;
+      }
+    });
+    _toast('换好了');
+  }
+
+  Future<void> _setBg() async {
+    final path = await _pickImage('bg');
+    if (path == null) return;
+    final sp = await SharedPreferences.getInstance();
+    await sp.setString('bg', path);
+    setState(() => _bg = path);
+    _toast('背景换好了');
+  }
+
+  Future<void> _clearBg() async {
+    final sp = await SharedPreferences.getInstance();
+    await sp.remove('bg');
+    setState(() => _bg = null);
   }
 
   Future<void> _checkUpdate() async {
@@ -288,6 +343,37 @@ class _ChatPageState extends State<ChatPage> {
     return '${t.month}月${t.day}日 $hm';
   }
 
+  Widget _avatar(String? path, double size, Widget fallback) {
+    return SizedBox(
+      width: size,
+      height: size,
+      child: ClipOval(
+        child: path == null
+            ? fallback
+            : Image.file(
+                File(path),
+                fit: BoxFit.cover,
+                errorBuilder: (_, __, ___) => fallback,
+              ),
+      ),
+    );
+  }
+
+  Widget _herAvatar(double size) => _avatar(
+        _avatarHer,
+        size,
+        Image.asset('assets/icon.png', fit: BoxFit.cover),
+      );
+
+  Widget _meAvatar(double size) => _avatar(
+        _avatarMe,
+        size,
+        Container(
+          color: const Color(0xFF2A3B55),
+          child: Icon(Icons.person, size: size * 0.62, color: kHint),
+        ),
+      );
+
   Widget _timeChip(String text) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 12),
@@ -300,6 +386,25 @@ class _ChatPageState extends State<ChatPage> {
     );
   }
 
+  Widget _listView() {
+    return ListView.builder(
+      controller: _scroll,
+      padding: const EdgeInsets.fromLTRB(14, 8, 14, 10),
+      itemCount: _msgs.length,
+      itemBuilder: (_, i) {
+        final m = _msgs[i];
+        final showTime = i == 0 || m.ts.difference(_msgs[i - 1].ts).inMinutes.abs() >= 5;
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            if (showTime) _timeChip(_fmt(m.ts)),
+            _bubble(m),
+          ],
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -309,9 +414,9 @@ class _ChatPageState extends State<ChatPage> {
         titleSpacing: 14,
         title: Row(
           children: [
-            const CircleAvatar(
-              radius: 18,
-              backgroundImage: AssetImage('assets/icon.png'),
+            GestureDetector(
+              onTap: () => _setAvatar(me: false),
+              child: _herAvatar(38),
             ),
             const SizedBox(width: 10),
             Column(
@@ -345,90 +450,97 @@ class _ChatPageState extends State<ChatPage> {
             icon: const Icon(Icons.more_horiz),
             color: kPanel,
             onSelected: (v) {
-              if (v == 'server') _editServer();
+              if (v == 'avatar_me') _setAvatar(me: true);
+              if (v == 'avatar_her') _setAvatar(me: false);
+              if (v == 'bg') _setBg();
+              if (v == 'bg_clear') _clearBg();
               if (v == 'reload') _loadHistory();
+              if (v == 'server') _editServer();
             },
             itemBuilder: (_) => const [
+              PopupMenuItem(value: 'avatar_me', child: Text('换我的头像')),
+              PopupMenuItem(value: 'avatar_her', child: Text('换岚岚的头像')),
+              PopupMenuItem(value: 'bg', child: Text('换聊天背景')),
+              PopupMenuItem(value: 'bg_clear', child: Text('恢复默认背景')),
               PopupMenuItem(value: 'reload', child: Text('重新拉记录')),
               PopupMenuItem(value: 'server', child: Text('后台地址')),
             ],
           ),
         ],
       ),
-      body: Column(
+      body: Stack(
         children: [
-          Expanded(
-            child: ListView.builder(
-              controller: _scroll,
-              padding: const EdgeInsets.fromLTRB(14, 8, 14, 10),
-              itemCount: _msgs.length,
-              itemBuilder: (_, i) {
-                final m = _msgs[i];
-                final showTime = i == 0 ||
-                    m.ts.difference(_msgs[i - 1].ts).inMinutes.abs() >= 5;
-                return Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    if (showTime) _timeChip(_fmt(m.ts)),
-                    _bubble(m),
-                  ],
-                );
-              },
+          if (_bg != null)
+            Positioned.fill(
+              child: Image.file(
+                File(_bg!),
+                fit: BoxFit.cover,
+                errorBuilder: (_, __, ___) => Container(color: kBg),
+              ),
             ),
-          ),
-          SafeArea(
-            top: false,
-            child: Container(
-              padding: const EdgeInsets.fromLTRB(12, 8, 12, 10),
-              decoration: const BoxDecoration(
-                color: kPanel,
-                border: Border(top: BorderSide(color: Color(0xFF1B2740))),
-              ),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: _input,
-                      minLines: 1,
-                      maxLines: 4,
-                      textInputAction: TextInputAction.send,
-                      onSubmitted: (_) => _send(),
-                      style: const TextStyle(fontSize: 15),
-                      decoration: InputDecoration(
-                        hintText: '跟岚岚说点什么',
-                        hintStyle: const TextStyle(color: kHint, fontSize: 14),
-                        filled: true,
-                        fillColor: const Color(0xFF182337),
-                        contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 16, vertical: 12),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(20),
-                          borderSide: BorderSide.none,
+          if (_bg != null)
+            Positioned.fill(child: Container(color: Colors.black.withOpacity(0.55))),
+          Positioned.fill(
+            child: Column(
+              children: [
+                Expanded(child: _listView()),
+                SafeArea(
+                  top: false,
+                  child: Container(
+                    padding: const EdgeInsets.fromLTRB(12, 8, 12, 10),
+                    decoration: const BoxDecoration(
+                      color: kPanel,
+                      border: Border(top: BorderSide(color: Color(0xFF1B2740))),
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: _input,
+                            minLines: 1,
+                            maxLines: 4,
+                            textInputAction: TextInputAction.send,
+                            onSubmitted: (_) => _send(),
+                            style: const TextStyle(fontSize: 15),
+                            decoration: InputDecoration(
+                              hintText: '跟岚岚说点什么',
+                              hintStyle:
+                                  const TextStyle(color: kHint, fontSize: 14),
+                              filled: true,
+                              fillColor: const Color(0xFF182337),
+                              contentPadding: const EdgeInsets.symmetric(
+                                  horizontal: 16, vertical: 12),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(20),
+                                borderSide: BorderSide.none,
+                              ),
+                            ),
+                          ),
                         ),
-                      ),
+                        const SizedBox(width: 10),
+                        SizedBox(
+                          width: 44,
+                          height: 44,
+                          child: Material(
+                            color: _busy ? const Color(0xFF23324A) : kBlue,
+                            shape: const CircleBorder(),
+                            child: InkWell(
+                              customBorder: const CircleBorder(),
+                              onTap: _busy ? null : _send,
+                              child: Icon(
+                                Icons.send_rounded,
+                                size: 20,
+                                color: _busy ? kHint : Colors.white,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                  const SizedBox(width: 10),
-                  SizedBox(
-                    width: 44,
-                    height: 44,
-                    child: Material(
-                      color: _busy ? const Color(0xFF23324A) : kBlue,
-                      shape: const CircleBorder(),
-                      child: InkWell(
-                        customBorder: const CircleBorder(),
-                        onTap: _busy ? null : _send,
-                        child: Icon(
-                          Icons.send_rounded,
-                          size: 20,
-                          color: _busy ? kHint : Colors.white,
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
+                ),
+              ],
             ),
           ),
         ],
@@ -440,7 +552,7 @@ class _ChatPageState extends State<ChatPage> {
     final me = m.me;
     final content = Container(
       constraints: BoxConstraints(
-        maxWidth: MediaQuery.of(context).size.width * 0.72,
+        maxWidth: MediaQuery.of(context).size.width * 0.70,
       ),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       decoration: BoxDecoration(
@@ -469,14 +581,14 @@ class _ChatPageState extends State<ChatPage> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           if (!me) ...[
-            const CircleAvatar(
-              radius: 16,
-              backgroundImage: AssetImage('assets/icon.png'),
-            ),
+            GestureDetector(onTap: () => _setAvatar(me: false), child: _herAvatar(32)),
             const SizedBox(width: 8),
           ],
           Flexible(child: content),
-          if (me) const SizedBox(width: 4),
+          if (me) ...[
+            const SizedBox(width: 8),
+            GestureDetector(onTap: () => _setAvatar(me: true), child: _meAvatar(32)),
+          ],
         ],
       ),
     );
