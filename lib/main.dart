@@ -8,7 +8,7 @@ import 'package:url_launcher/url_launcher.dart';
 void main() => runApp(const FeiyuApp());
 
 const kDefaultServer = 'http://192.168.1.2:8790';
-const kAppVersion = '0.1.3';
+const kAppVersion = '0.1.4';
 
 const kBlue = Color(0xFF2B6EF2);
 const kBg = Color(0xFF0A1019);
