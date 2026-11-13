@@ -27,8 +27,8 @@ jobs:
           flutter create --platforms=android --project-name feiyu_chat .
           MAN=android/app/src/main/AndroidManifest.xml
           sed -i 's/android:label="feiyu_chat"/android:label="肥鱼小窝"/' "$MAN"
-          sed -i 's/<application/<application android:usesCleartextTraffic="true"/' "$MAN"
-          grep -n "usesCleartextTraffic\|android:label" "$MAN"
+          sed -i 's|<application|<uses-permission android:name="android.permission.INTERNET"/>\n    <application android:usesCleartextTraffic="true"|' "$MAN"
+          grep -n "INTERNET\|usesCleartextTraffic\|android:label" "$MAN"
 
       - name: 拉依赖
         run: flutter pub get
