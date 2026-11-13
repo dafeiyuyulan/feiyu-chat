@@ -43,6 +43,37 @@ jobs:
           PY
           ls android/app/src/main/res/mipmap-xxxhdpi/
 
+      - name: 配固定签名
+        env:
+          KEYSTORE_B64: ${{ secrets.KEYSTORE_B64 }}
+          KEYSTORE_PASS: ${{ secrets.KEYSTORE_PASS }}
+        run: |
+          echo "$KEYSTORE_B64" | base64 -d > android/app/feiyu.jks
+          printf 'storeFile=feiyu.jks\nstorePassword=%s\nkeyAlias=feiyu\nkeyPassword=%s\n' "$KEYSTORE_PASS" "$KEYSTORE_PASS" > android/key.properties
+          python3 - <<'PY'
+          import pathlib
+          p = pathlib.Path('android/app/build.gradle.kts')
+          s = p.read_text()
+          s = 'import java.util.Properties\nimport java.io.FileInputStream\n\n' + s
+          s = s.replace('    buildTypes {', '''    signingConfigs {
+              create("release") {
+                  val kp = Properties()
+                  val f = rootProject.file("key.properties")
+                  if (f.exists()) kp.load(FileInputStream(f))
+                  keyAlias = kp["keyAlias"] as String
+                  keyPassword = kp["keyPassword"] as String
+                  storeFile = file(kp["storeFile"] as String)
+                  storePassword = kp["storePassword"] as String
+              }
+          }
+
+    buildTypes {''', 1)
+          s = s.replace('signingConfig = signingConfigs.getByName("debug")', 'signingConfig = signingConfigs.getByName("release")')
+          p.write_text(s)
+          print('签名配置完成')
+          PY
+          grep -n "signingConfig" android/app/build.gradle.kts
+
       - name: 拉依赖
         run: flutter pub get
 
