@@ -3,10 +3,12 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 void main() => runApp(const FeiyuApp());
 
 const kDefaultServer = 'http://192.168.1.2:8790';
+const kAppVersion = '0.1.2';
 
 class FeiyuApp extends StatelessWidget {
   const FeiyuApp({super.key});
@@ -91,6 +93,73 @@ class _ChatPageState extends State<ChatPage> {
         );
       }
     });
+  }
+
+  bool _newer(String remote, String local) {
+    List<int> p(String v) =>
+        v.split(RegExp(r'[.+-]')).take(3).map((e) => int.tryParse(e) ?? 0).toList();
+    final a = p(remote), b = p(local);
+    for (var i = 0; i < 3; i++) {
+      final x = i < a.length ? a[i] : 0;
+      final y = i < b.length ? b[i] : 0;
+      if (x != y) return x > y;
+    }
+    return false;
+  }
+
+  void _toast(String text) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(text), duration: const Duration(seconds: 2)),
+    );
+  }
+
+  Future<void> _checkUpdate() async {
+    _toast('去看看有没有新版本');
+    Map<String, dynamic> info;
+    try {
+      final r = await http
+          .get(Uri.parse('$_server/api/version'))
+          .timeout(const Duration(seconds: 8));
+      info = jsonDecode(utf8.decode(r.bodyBytes)) as Map<String, dynamic>;
+    } catch (_) {
+      _toast('连不上后台，可能没开');
+      return;
+    }
+    final remote = (info['version'] ?? '').toString();
+    final url = (info['url'] ?? '').toString();
+    if (!_newer(remote, kAppVersion)) {
+      _toast('已经是最新的啦 $kAppVersion');
+      return;
+    }
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: Text('有新版本 $remote'),
+        content: Text(
+          (info['notes'] ?? '').toString().isEmpty
+              ? '现在装的是 $kAppVersion，要不要下新的'
+              : info['notes'].toString(),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('待会儿')),
+          TextButton(
+            onPressed: () async {
+              Navigator.pop(context);
+              final uri = Uri.tryParse(url);
+              if (uri == null) {
+                _toast('下载地址不对');
+                return;
+              }
+              final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
+              if (!ok) _toast('打不开浏览器');
+            },
+            child: const Text('去下载'),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _send() async {
@@ -183,6 +252,11 @@ class _ChatPageState extends State<ChatPage> {
           child: const Text('肥鱼小窝', style: TextStyle(fontSize: 16, letterSpacing: 1)),
         ),
         actions: [
+          IconButton(
+            onPressed: _checkUpdate,
+            icon: const Icon(Icons.system_update_alt),
+            tooltip: '检查更新',
+          ),
           IconButton(
             onPressed: _loadHistory,
             icon: const Icon(Icons.refresh),
