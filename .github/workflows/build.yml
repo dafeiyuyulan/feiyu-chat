@@ -33,14 +33,7 @@ jobs:
       - name: 换图标
         run: |
           python3 -m pip install --quiet pillow
-          python3 - <<'PY'
-          from PIL import Image
-          im = Image.open('assets/icon.png').convert('RGBA')
-          sizes = {'mdpi': 48, 'hdpi': 72, 'xhdpi': 96, 'xxhdpi': 144, 'xxxhdpi': 192}
-          for d, s in sizes.items():
-              im.resize((s, s), Image.LANCZOS).save(f'android/app/src/main/res/mipmap-{d}/ic_launcher.png')
-          print('图标换好了')
-          PY
+          python3 tools/make_icons.py
           ls android/app/src/main/res/mipmap-xxxhdpi/
 
       - name: 配固定签名
@@ -50,28 +43,7 @@ jobs:
         run: |
           echo "$KEYSTORE_B64" | base64 -d > android/app/feiyu.jks
           printf 'storeFile=feiyu.jks\nstorePassword=%s\nkeyAlias=feiyu\nkeyPassword=%s\n' "$KEYSTORE_PASS" "$KEYSTORE_PASS" > android/key.properties
-          python3 - <<'PY'
-          import pathlib
-          p = pathlib.Path('android/app/build.gradle.kts')
-          s = p.read_text()
-          s = 'import java.util.Properties\nimport java.io.FileInputStream\n\n' + s
-          s = s.replace('    buildTypes {', '''    signingConfigs {
-              create("release") {
-                  val kp = Properties()
-                  val f = rootProject.file("key.properties")
-                  if (f.exists()) kp.load(FileInputStream(f))
-                  keyAlias = kp["keyAlias"] as String
-                  keyPassword = kp["keyPassword"] as String
-                  storeFile = file(kp["storeFile"] as String)
-                  storePassword = kp["storePassword"] as String
-              }
-          }
-
-    buildTypes {''', 1)
-          s = s.replace('signingConfig = signingConfigs.getByName("debug")', 'signingConfig = signingConfigs.getByName("release")')
-          p.write_text(s)
-          print('签名配置完成')
-          PY
+          python3 tools/patch_android.py
           grep -n "signingConfig" android/app/build.gradle.kts
 
       - name: 拉依赖
