@@ -23,19 +23,16 @@ jobs:
           cache: true
 
       - name: 补齐安卓脚手架
-        working-directory: app
         run: flutter create --platforms=android --project-name feiyu_chat .
 
       - name: 拉依赖
-        working-directory: app
         run: flutter pub get
 
       - name: 编 release apk
-        working-directory: app
         run: flutter build apk --release
 
       - name: 传上去
         uses: actions/upload-artifact@v4
         with:
           name: feiyu-chat-apk
-          path: app/build/app/outputs/flutter-apk/app-release.apk
+          path: build/app/outputs/flutter-apk/app-release.apk
