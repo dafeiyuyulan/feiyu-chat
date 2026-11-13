@@ -30,6 +30,15 @@ jobs:
           sed -i 's|<application|<uses-permission android:name="android.permission.INTERNET"/>\n    <application android:usesCleartextTraffic="true"|' "$MAN"
           grep -n "INTERNET\|usesCleartextTraffic\|android:label" "$MAN"
 
+      - name: 换图标
+        run: |
+          for pair in mdpi:48 hdpi:72 xhdpi:96 xxhdpi:144 xxxhdpi:192; do
+            d="${pair%%:*}"
+            s="${pair##*:}"
+            convert "assets/icon.png" -resize "${s}x${s}" "android/app/src/main/res/mipmap-${d}/ic_launcher.png"
+          done
+          ls -l android/app/src/main/res/mipmap-xxxhdpi/
+
       - name: 拉依赖
         run: flutter pub get
 
