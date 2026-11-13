@@ -32,12 +32,16 @@ jobs:
 
       - name: 换图标
         run: |
-          for pair in mdpi:48 hdpi:72 xhdpi:96 xxhdpi:144 xxxhdpi:192; do
-            d="${pair%%:*}"
-            s="${pair##*:}"
-            convert "assets/icon.png" -resize "${s}x${s}" "android/app/src/main/res/mipmap-${d}/ic_launcher.png"
-          done
-          ls -l android/app/src/main/res/mipmap-xxxhdpi/
+          python3 -m pip install --quiet pillow
+          python3 - <<'PY'
+          from PIL import Image
+          im = Image.open('assets/icon.png').convert('RGBA')
+          sizes = {'mdpi': 48, 'hdpi': 72, 'xhdpi': 96, 'xxhdpi': 144, 'xxxhdpi': 192}
+          for d, s in sizes.items():
+              im.resize((s, s), Image.LANCZOS).save(f'android/app/src/main/res/mipmap-{d}/ic_launcher.png')
+          print('图标换好了')
+          PY
+          ls android/app/src/main/res/mipmap-xxxhdpi/
 
       - name: 拉依赖
         run: flutter pub get
